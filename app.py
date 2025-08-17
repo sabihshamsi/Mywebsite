@@ -5,17 +5,17 @@ import os
 import traceback
 import mysql.connector
 
+# Load environment variables
+load_dotenv()
 
-app = Flask(__name__)
-app.secret_key = "super-secret-key"  # needed for 
+# Initialize Flask with correct template folder
+app = Flask(__name__, template_folder="chatbot")  # <-- folder where your HTML files are
+app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
 
+# --- Constants ---
 MAX_ATTEMPTS = 5
 VALID_EMAIL = os.getenv("VALID_EMAIL")
 VALID_PASSWORD = os.getenv("VALID_PASSWORD")
-
-
-# Load environment variables
-load_dotenv()
 
 # Initialize Groq client
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
@@ -42,12 +42,11 @@ def save_login_to_db(role, email, password, status):
     except Exception as e:
         print("DB Insert Error (login):", e)
 
-
 def save_message_to_db(role, message):
     """Save chatbot messages into DB"""
     try:
         conn = mysql.connector.connect(
-            host="localhost",
+            host=os.getenv("DB_HOST"),
             user=os.getenv("DB_USER"),
             password=os.getenv("DB_PASSWORD"),
             database=os.getenv("DB_NAME")
@@ -61,34 +60,29 @@ def save_message_to_db(role, message):
     except Exception as e:
         print("DB Insert Error (chat):", e)
 
-
+# --- Routes ---
 @app.route("/")
 @app.route("/index.html")
 def index():
     return render_template("index.html")
 
-# Handle login form submission
 @app.route("/login", methods=["POST"])
 def login():
     email = request.form.get("email", "")
     password = request.form.get("password", "")
 
-    # Initialize attempts if not already
     if "attempts" not in session:
         session["attempts"] = 0
 
-    # If already exceeded max attempts
     if session["attempts"] >= MAX_ATTEMPTS:
         save_login_to_db("Login Blocked", email, password, "Too Many Attempts")
         return render_template("index.html", error="🚫 Too many attempts. Access permanently denied.")
 
-    # ✅ Check if credentials match
     if email == VALID_EMAIL and password == VALID_PASSWORD:
         save_login_to_db("Login Success", email, password, "Access Granted")
-        session.pop("attempts", None)  # reset attempts after success
+        session.pop("attempts", None)
         return redirect("/chatbot")
 
-    # ❌ Wrong credentials
     session["attempts"] += 1
     save_login_to_db("Login Attempt", email, password, "Access Denied")
 
@@ -98,7 +92,6 @@ def login():
 
     return render_template("index.html", error="❌ Access Denied. Try again.")
 
-# Show chatbot page
 @app.route("/chatbot")
 def chatbot():
     return render_template("chatbot.html")
@@ -108,7 +101,6 @@ def ask():
     user_message = request.json.get("message", "")
 
     try:
-        # Save user message
         save_message_to_db("User", user_message)
 
         completion = client.chat.completions.create(
@@ -132,8 +124,6 @@ def ask():
         )
 
         bot_reply = completion.choices[0].message.content
-
-        # Save bot reply
         save_message_to_db("Sabih", bot_reply)
 
         return jsonify({"reply": bot_reply})
@@ -142,7 +132,7 @@ def ask():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+# --- Run App ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
-
