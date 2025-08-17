@@ -9,7 +9,12 @@ import mysql.connector
 load_dotenv()
 
 # Initialize Flask with correct template folder
-app = Flask(__name__, template_folder="chatbot")  # <-- folder where your HTML files are
+app = Flask(
+    __name__,
+    template_folder="templates",  # default is "templates"
+    static_folder="static"        # default is "static"
+)
+
 app.secret_key = os.getenv("SECRET_KEY", "super-secret-key")
 
 # --- Constants ---
@@ -136,3 +141,4 @@ def ask():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
