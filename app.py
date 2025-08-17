@@ -10,8 +10,9 @@ app = Flask(__name__)
 app.secret_key = "super-secret-key"  # needed for 
 
 MAX_ATTEMPTS = 5
-VALID_EMAIL = "test@gmail.com"
-VALID_PASSWORD = "12345"
+VALID_EMAIL = os.getenv("VALID_EMAIL")
+VALID_PASSWORD = os.getenv("VALID_PASSWORD")
+
 
 # Load environment variables
 load_dotenv()
@@ -24,10 +25,10 @@ def save_login_to_db(role, email, password, status):
     """Save login attempts into DB"""
     try:
         conn = mysql.connector.connect(
-            host="localhost",
-            user="root",
-            password="kli1066",
-            database="chatbot"
+            host=os.getenv("DB_HOST"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"),
+            database=os.getenv("DB_NAME")
         )
         cursor = conn.cursor()
         sql = """
@@ -47,9 +48,9 @@ def save_message_to_db(role, message):
     try:
         conn = mysql.connector.connect(
             host="localhost",
-            user="root",
-            password="kli1066",
-            database="chatbot"
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"),
+            database=os.getenv("DB_NAME")
         )
         cursor = conn.cursor()
         sql = "INSERT INTO conversations (role, content) VALUES (%s, %s)"
