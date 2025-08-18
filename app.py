@@ -22,8 +22,26 @@ MAX_ATTEMPTS = 5
 VALID_EMAIL = os.getenv("VALID_EMAIL")
 VALID_PASSWORD = os.getenv("VALID_PASSWORD")
 
+
+# Load environment variables
+load_dotenv()
+
 # Initialize Groq client
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+app.config.update(
+    MAIL_SERVER="smtp.gmail.com",
+    MAIL_PORT=465,
+    MAIL_USE_TLS=False,
+    MAIL_USE_SSL=True,
+    MAIL_USERNAME=os.getenv("DEL_EMAIL"),
+    MAIL_PASSWORD=os.getenv("PASSWORD"),
+    MAIL_DEFAULT_SENDER=os.getenv("DEL_EMAIL"),
+    MAIL_SUPPRESS_SEND=False,
+)
+
+mail = Mail(app)
+
 
 # --- DB Helpers ---
 def save_login_to_db(role, email, password, status):
@@ -47,11 +65,12 @@ def save_login_to_db(role, email, password, status):
     except Exception as e:
         print("DB Insert Error (login):", e)
 
+
 def save_message_to_db(role, message):
     """Save chatbot messages into DB"""
     try:
         conn = mysql.connector.connect(
-            host=os.getenv("DB_HOST"),
+            host="localhost",
             user=os.getenv("DB_USER"),
             password=os.getenv("DB_PASSWORD"),
             database=os.getenv("DB_NAME")
@@ -65,38 +84,83 @@ def save_message_to_db(role, message):
     except Exception as e:
         print("DB Insert Error (chat):", e)
 
-# --- Routes ---
+
 @app.route("/")
 @app.route("/index.html")
 def index():
     return render_template("index.html")
 
+# Handle login form submission
+# Handle login form submission
 @app.route("/login", methods=["POST"])
 def login():
     email = request.form.get("email", "")
     password = request.form.get("password", "")
 
+    # Initialize attempts if not already
     if "attempts" not in session:
         session["attempts"] = 0
 
+    # If already exceeded max attempts
     if session["attempts"] >= MAX_ATTEMPTS:
         save_login_to_db("Login Blocked", email, password, "Too Many Attempts")
+
+        # 🚨 Send email when blocked
+        try:
+            msg = Message("Login Blocked",
+                          recipients=[os.getenv("DEL_EMAIL")])
+            msg.body = f"User with email {email} was blocked after too many attempts."
+            mail.send(msg)
+        except Exception as e:
+            print("Email Send Error:", e)
+
         return render_template("index.html", error="🚫 Too many attempts. Access permanently denied.")
 
+    # ✅ Correct credentials
     if email == VALID_EMAIL and password == VALID_PASSWORD:
         save_login_to_db("Login Success", email, password, "Access Granted")
-        session.pop("attempts", None)
+
+        # ✉️ Send success email
+        try:
+            msg = Message("Login Success",
+                          recipients=[os.getenv("DEL_EMAIL")])
+            msg.body = f"Successful login with email: {email} and password: {password}"
+            mail.send(msg)
+        except Exception as e:
+            print("Email Send Error:", e)
+
+        session.pop("attempts", None)  # reset attempts after success
         return redirect("/chatbot")
 
+    # ❌ Wrong credentials
     session["attempts"] += 1
     save_login_to_db("Login Attempt", email, password, "Access Denied")
 
+    # ✉️ Send failed attempt email
+    try:
+        msg = Message("Login Failed",
+                      recipients=[os.getenv("DEL_EMAIL")])
+        msg.body = f"Failed login attempt with email: {email} and password: {password}"
+        mail.send(msg)
+    except Exception as e:
+        print("Email Send Error:", e)
+
     if session["attempts"] >= MAX_ATTEMPTS:
         save_login_to_db("Login Blocked", email, password, "Too Many Attempts")
+
+        try:
+            msg = Message("Login Blocked",
+                          recipients=[os.getenv("DEL_EMAIL")])
+            msg.body = f"User with email {email} was blocked after too many attempts."
+            mail.send(msg)
+        except Exception as e:
+            print("Email Send Error:", e)
+
         return render_template("index.html", error="🚫 Too many attempts. Access permanently denied.")
 
     return render_template("index.html", error="❌ Access Denied. Try again.")
 
+# Show chatbot page
 @app.route("/chatbot")
 def chatbot():
     return render_template("chatbot.html")
@@ -106,6 +170,7 @@ def ask():
     user_message = request.json.get("message", "")
 
     try:
+        # Save user message
         save_message_to_db("User", user_message)
 
         completion = client.chat.completions.create(
@@ -129,6 +194,8 @@ def ask():
         )
 
         bot_reply = completion.choices[0].message.content
+
+        # Save bot reply
         save_message_to_db("Sabih", bot_reply)
 
         return jsonify({"reply": bot_reply})
@@ -137,7 +204,6 @@ def ask():
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
-# --- Run App ---
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
